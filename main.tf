@@ -1,7 +1,10 @@
 variable "vpc_name" {
   type = string
-  default = "terraform-automation-vpc"
+  default = "terraform-automation"
 }
+
+data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
 
 resource "aws_vpc" "clc_vpc" {
   cidr_block       = "172.16.0.0/16"
@@ -10,6 +13,103 @@ resource "aws_vpc" "clc_vpc" {
   tags = {
     Name = "${var.vpc_name}"
   }
+}
+
+resource "aws_default_security_group" "clc_vpc" {
+  vpc_id  = aws_vpc.clc_vpc.id
+  ingress = []
+  egress  = []
+
+  tags = {
+    Name = "${var.vpc_name}-default"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "vpc_flow_logs" {
+  name              = "/aws/vpc/${var.vpc_name}/flow-logs"
+  retention_in_days = 365
+  kms_key_id        = aws_kms_key.vpc_flow_logs.arn
+}
+
+resource "aws_kms_key" "vpc_flow_logs" {
+  description             = "KMS key for ${var.vpc_name} VPC flow logs"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EnableIAMUserPermissions"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowCloudWatchLogsUseOfKey"
+        Effect = "Allow"
+        Principal = {
+          Service = "logs.${data.aws_region.current.name}.amazonaws.com"
+        }
+        Action = [
+          "kms:Encrypt*",
+          "kms:Decrypt*",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:Describe*"
+        ]
+        Resource = "*"
+        Condition = {
+          ArnEquals = {
+            "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/vpc/${var.vpc_name}/flow-logs"
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role" "vpc_flow_logs" {
+  name = "${var.vpc_name}-vpc-flow-logs"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "vpc-flow-logs.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "vpc_flow_logs" {
+  name = "${var.vpc_name}-vpc-flow-logs"
+  role = aws_iam_role.vpc_flow_logs.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ]
+      Resource = "${aws_cloudwatch_log_group.vpc_flow_logs.arn}:*"
+    }]
+  })
+}
+
+resource "aws_flow_log" "clc_vpc" {
+  vpc_id               = aws_vpc.clc_vpc.id
+  traffic_type         = "ALL"
+  log_destination_type = "cloud-watch-logs"
+  log_destination      = aws_cloudwatch_log_group.vpc_flow_logs.arn
+  iam_role_arn         = aws_iam_role.vpc_flow_logs.arn
 }
 
 resource "aws_subnet" "public_subnet_1a" {
