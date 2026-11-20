@@ -1,10 +1,14 @@
+variable "vpc_name" {
+  type = string
+  default = "terraform-automation-vpc"
+}
+
 resource "aws_vpc" "clc_vpc" {
   cidr_block       = "172.16.0.0/16"
   instance_tenancy = "default"
 
   tags = {
-    #Name = "vpc_terraform_tf"
-    Name = "cicd-terraform-vpc"
+    Name = "${var.vpc_name}"
   }
 }
 
