@@ -24,7 +24,7 @@ resource "aws_default_security_group" "clc_vpc" {
 
 resource "aws_cloudwatch_log_group" "vpc_flow_logs" {
   name              = "/aws/vpc/${var.vpc_name}/flow-logs"
-  retention_in_days = 30
+  retention_in_days = 365
 }
 
 resource "aws_iam_role" "vpc_flow_logs" {
