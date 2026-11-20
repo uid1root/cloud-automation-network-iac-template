@@ -1,271 +1,175 @@
-variable "vpc_name" {
-  type = string
-  default = "terraform-automation"
-}
-
-data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
-
-resource "aws_vpc" "clc_vpc" {
-  cidr_block       = "172.16.0.0/16"
+resource "aws_vpc" "terraform_vpc" {
+  cidr_block       = "10.0.0.0/16"
   instance_tenancy = "default"
 
   tags = {
-    Name = "${var.vpc_name}"
+    Name = "tf-vpc"
+    CC = "123456"
+    Owner = "DevOps"
   }
 }
 
-resource "aws_default_security_group" "clc_vpc" {
-  vpc_id  = aws_vpc.clc_vpc.id
-  ingress = []
-  egress  = []
-
-  tags = {
-    Name = "${var.vpc_name}-default"
-  }
-}
-
-resource "aws_cloudwatch_log_group" "vpc_flow_logs" {
-  name              = "/aws/vpc/${var.vpc_name}/flow-logs"
-  retention_in_days = 365
-  kms_key_id        = aws_kms_key.vpc_flow_logs.arn
-}
-
-resource "aws_kms_key" "vpc_flow_logs" {
-  description             = "KMS key for ${var.vpc_name} VPC flow logs"
-  enable_key_rotation     = true
-  deletion_window_in_days = 30
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "EnableIAMUserPermissions"
-        Effect = "Allow"
-        Principal = {
-          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
-        }
-        Action   = "kms:*"
-        Resource = "*"
-      },
-      {
-        Sid    = "AllowCloudWatchLogsUseOfKey"
-        Effect = "Allow"
-        Principal = {
-          Service = "logs.${data.aws_region.current.name}.amazonaws.com"
-        }
-        Action = [
-          "kms:Encrypt*",
-          "kms:Decrypt*",
-          "kms:ReEncrypt*",
-          "kms:GenerateDataKey*",
-          "kms:Describe*"
-        ]
-        Resource = "*"
-        Condition = {
-          ArnEquals = {
-            "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/vpc/${var.vpc_name}/flow-logs"
-          }
-        }
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role" "vpc_flow_logs" {
-  name = "${var.vpc_name}-vpc-flow-logs"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = {
-        Service = "vpc-flow-logs.amazonaws.com"
-      }
-      Action = "sts:AssumeRole"
-    }]
-  })
-}
-
-resource "aws_iam_role_policy" "vpc_flow_logs" {
-  name = "${var.vpc_name}-vpc-flow-logs"
-  role = aws_iam_role.vpc_flow_logs.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Action = [
-        "logs:CreateLogStream",
-        "logs:PutLogEvents"
-      ]
-      Resource = "${aws_cloudwatch_log_group.vpc_flow_logs.arn}:*"
-    }]
-  })
-}
-
-resource "aws_flow_log" "clc_vpc" {
-  vpc_id               = aws_vpc.clc_vpc.id
+# Correcao primeira issue
+resource "aws_flow_log" "example" {
+  log_destination      = "arn:aws:s3:::clc17-meu-bucket-715574343172-us-east-1-an"
+  log_destination_type = "s3"
   traffic_type         = "ALL"
-  log_destination_type = "cloud-watch-logs"
-  log_destination      = aws_cloudwatch_log_group.vpc_flow_logs.arn
-  iam_role_arn         = aws_iam_role.vpc_flow_logs.arn
+  vpc_id               = aws_vpc.terraform_vpc.id
 }
 
-resource "aws_subnet" "public_subnet_1a" {
-  vpc_id     = aws_vpc.clc_vpc.id
-  cidr_block = "172.16.1.0/24"
-  availability_zone = "us-east-1a" 
+# Correcao segunda issue
+resource "aws_default_security_group" "default" {
+  vpc_id = aws_vpc.terraform_vpc.id
+  
   tags = {
-    Name = "public_subnet_1a_tf"
+    Name = "my-iac-sg"
   }
 }
 
-resource "aws_subnet" "private_subnet_1a" {
-  vpc_id     = aws_vpc.clc_vpc.id
-  cidr_block = "172.16.10.0/24"
-  availability_zone = "us-east-1a" 
+## Cria as 4 subnets em suas respectivas AZs ##
+
+## Cria subnets na AZ 1A
+resource "aws_subnet" "subnet_public_1a" {
+  vpc_id     = aws_vpc.terraform_vpc.id
+  cidr_block = "10.0.1.0/24"
+  availability_zone = "us-east-1a"
+
   tags = {
-    Name = "private_subnet_1a_tf"
+    Name = "public-tf-subnet-1a"
   }
 }
 
-## Cria Internet Gateway com a referencia da vpc clc_vpc
-resource "aws_internet_gateway" "gw_clc_vpc" {
-  vpc_id = aws_vpc.clc_vpc.id
+resource "aws_subnet" "subnet_private_1a" {
+  vpc_id     = aws_vpc.terraform_vpc.id
+  cidr_block = "10.0.100.0/24"
+  availability_zone = "us-east-1a"
 
   tags = {
-    Name = "igw_clc_vpc_tf"
+    Name = "private-tf-subnet-1a"
   }
 }
 
-## Cria tabela de rota publica com rota para o Internet Gateway
-resource "aws_route_table" "public_rt" {
-  vpc_id = aws_vpc.clc_vpc.id
+## Cria subnets na AZ 1B
+resource "aws_subnet" "subnet_public_1b" {
+  vpc_id     = aws_vpc.terraform_vpc.id
+  cidr_block = "10.0.2.0/24"
+  availability_zone = "us-east-1b"
+
+  tags = {
+    Name = "public-tf-subnet-1b"
+  }
+}
+
+resource "aws_subnet" "subnet_private_1b" {
+  vpc_id     = aws_vpc.terraform_vpc.id
+  cidr_block = "10.0.200.0/24"
+  availability_zone = "us-east-1b"
+
+  tags = {
+    Name = "private-tf-subnet-1b"
+  }
+}
+
+## Cria um Internet Gateway e associa na VPC ##
+resource "aws_internet_gateway" "tf_igw" {
+  vpc_id = aws_vpc.terraform_vpc.id
+
+  tags = {
+    Name = "tf-vpc-igw"
+  }
+}
+
+## Cria a tabela de rota publica apontando para o igw ##
+resource "aws_route_table" "tf_public_rt" {
+  vpc_id = aws_vpc.terraform_vpc.id
 
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.gw_clc_vpc.id
+    gateway_id = aws_internet_gateway.tf_igw.id
   }
 
   tags = {
-    Name = "public_rt_tf"
+    Name = "tf-public-rt"
   }
 }
 
-## Associa a tabela de rota publica na subnet publica 1a ##
-resource "aws_route_table_association" "rt_pub_association_subnet_1a" {
-  subnet_id      = aws_subnet.public_subnet_1a.id
-  route_table_id = aws_route_table.public_rt.id
+## Associa a RT Public nas subnets publicas ##
+resource "aws_route_table_association" "public_1a_association" {
+  subnet_id      = aws_subnet.subnet_public_1a.id
+  route_table_id = aws_route_table.tf_public_rt.id
 }
 
-## Cria um IP público para nat gateway 1a ##
-resource "aws_eip" "eip_nat_gw_1a" {
+resource "aws_route_table_association" "public_1b_association" {
+  subnet_id      = aws_subnet.subnet_public_1b.id
+  route_table_id = aws_route_table.tf_public_rt.id
+}
+
+## Cria Elastic IPs para as NAT Gateway ##
+
+resource "aws_eip" "tf_ip_nat_1a" {
   domain   = "vpc"
 }
 
-## Cria o nat gateway da zona de disponibilidade 1A ## 
-resource "aws_nat_gateway" "nat_gw_1a" {
-  allocation_id = aws_eip.eip_nat_gw_1a.id
-  subnet_id     = aws_subnet.public_subnet_1a.id
-
-  tags = {
-    Name = "nat_gw_1a_tf"
-  }
-
-  # To ensure proper ordering, it is recommended to add an explicit dependency
-  # on the Internet Gateway for the VPC.
-  depends_on = [aws_internet_gateway.gw_clc_vpc]
+resource "aws_eip" "tf_ip_nat_1b" {
+  domain   = "vpc"
 }
 
-## Cria tabela de rota privada 1A com rota para o NAT Gateway da 1A
-resource "aws_route_table" "private_rt_1a" {
-  vpc_id = aws_vpc.clc_vpc.id
+## Cria as NAT em suas respectivas subnets publicas ## 
+resource "aws_nat_gateway" "tf_natgateway_1a" {
+  allocation_id = aws_eip.tf_ip_nat_1a.id
+  subnet_id     = aws_subnet.subnet_public_1a.id
+
+  tags = {
+    Name = "tf-natgw-1a"
+  }
+  
+  depends_on = [aws_internet_gateway.tf_igw]
+}
+
+resource "aws_nat_gateway" "tf_natgateway_1b" {
+  allocation_id = aws_eip.tf_ip_nat_1b.id
+  subnet_id     = aws_subnet.subnet_public_1b.id
+
+  tags = {
+    Name = "tf-natgw-1b"
+  }
+  depends_on = [aws_internet_gateway.tf_igw]
+}
+
+## Cria tabela de rotas privadas para subnet 1A e 1B ##
+resource "aws_route_table" "tf_private_rt_1a" {
+  vpc_id = aws_vpc.terraform_vpc.id
 
   route {
     cidr_block = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.nat_gw_1a.id
+    gateway_id = aws_nat_gateway.tf_natgateway_1a.id
   }
 
   tags = {
-    Name = "private_rt_1a_tf"
+    Name = "tf-private-rt-1a"
   }
 }
 
-## Associa a tabela de rota privada 1a na subnet privada 1a ##
-resource "aws_route_table_association" "rt_priv_association_subnet_1a" {
-  subnet_id      = aws_subnet.private_subnet_1a.id
-  route_table_id = aws_route_table.private_rt_1a.id
-}
-
-################
-
-## Cria a subnet publica da zona 1c ##
-resource "aws_subnet" "public_subnet_1c" {
-  vpc_id            = aws_vpc.clc_vpc.id
-  cidr_block        = "172.16.2.0/24"
-  availability_zone = "us-east-1c"
-
-  tags = {
-    Name = "public_subnet_1c_tf"
-  }
-}
-
-## Cria a subnet privada da zona 1c ##
-resource "aws_subnet" "private_subnet_1c" {
-  vpc_id            = aws_vpc.clc_vpc.id
-  cidr_block        = "172.16.20.0/24"
-  availability_zone = "us-east-1c"
-
-  tags = {
-    Name = "private_subnet_1c_tf"
-  }
-}
-
-## Associa a tabela de rota publica (ja existente) na subnet publica 1c ##
-resource "aws_route_table_association" "rt_pub_association_subnet_1c" {
-  subnet_id      = aws_subnet.public_subnet_1c.id
-  route_table_id = aws_route_table.public_rt.id
-}
-
-## Cria um IP publico para o NAT Gateway 1c ##
-resource "aws_eip" "eip_nat_gw_1c" {
-  domain = "vpc"
-
-  tags = {
-    Name = "eip_nat_gw_1c_tf"
-  }
-}
-
-## Cria o NAT Gateway da zona de disponibilidade 1C ##
-resource "aws_nat_gateway" "nat_gw_1c" {
-  allocation_id = aws_eip.eip_nat_gw_1c.id
-  subnet_id     = aws_subnet.public_subnet_1c.id
-
-  tags = {
-    Name = "nat_gw_1c_tf"
-  }
-
-  # Garante que o Internet Gateway exista antes do NAT Gateway
-  depends_on = [aws_internet_gateway.gw_clc_vpc]
-}
-
-## Cria tabela de rota privada 1C com rota para o NAT Gateway da 1C ##
-resource "aws_route_table" "private_rt_1c" {
-  vpc_id = aws_vpc.clc_vpc.id
+resource "aws_route_table" "tf_private_rt_1b" {
+  vpc_id = aws_vpc.terraform_vpc.id
 
   route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.nat_gw_1c.id
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_nat_gateway.tf_natgateway_1b.id
   }
 
   tags = {
-    Name = "private_rt_1c_tf"
+    Name = "tf-private-rt-1b"
   }
 }
 
-## Associa a tabela de rota privada 1c na subnet privada 1c ##
-resource "aws_route_table_association" "rt_priv_association_subnet_1c" {
-  subnet_id      = aws_subnet.private_subnet_1c.id
-  route_table_id = aws_route_table.private_rt_1c.id
+## Associa as tabelas de rotas privadas nas subnets privadas##
+resource "aws_route_table_association" "private_1a_association" {
+  subnet_id      = aws_subnet.subnet_private_1a.id
+  route_table_id = aws_route_table.tf_private_rt_1a.id
+}
+
+resource "aws_route_table_association" "private_1b_association" {
+  subnet_id      = aws_subnet.subnet_private_1b.id
+  route_table_id = aws_route_table.tf_private_rt_1b.id
 }
