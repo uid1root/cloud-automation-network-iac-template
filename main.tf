@@ -14,7 +14,7 @@ resource "aws_vpc" "clc_vpc" {
 
 # Correcao primeira issue
 resource "aws_flow_log" "example" {
-  log_destination      = "clc17-meu-bucket-715574343172-us-east-1-an"
+  log_destination      = "arn:aws:s3:::cloud-foundation-vini-docs-619980339371-us-east-1-an"
   log_destination_type = "s3"
   traffic_type         = "ALL"
   vpc_id               = aws_vpc.clc_vpc.id
